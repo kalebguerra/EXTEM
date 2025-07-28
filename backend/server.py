@@ -16,6 +16,7 @@ import time
 from contextlib import asynccontextmanager
 from collections import defaultdict, deque
 import traceback
+from desktop_integration import desktop_integration
 
 # Environment setup
 ROOT_DIR = Path(__file__).parent
@@ -454,6 +455,69 @@ app.add_middleware(
 @app.get("/api/")
 async def root():
     return {"message": "AI Image Generator Manager - Desktop App v2.0", "status": "running"}
+
+@app.get("/api/desktop/system-info")
+async def get_desktop_system_info():
+    """Get comprehensive system information for desktop app"""
+    system_info = await desktop_integration.get_system_info()
+    return system_info
+
+@app.get("/api/desktop/config")
+async def get_desktop_config():
+    """Get desktop-specific configuration"""
+    config = await desktop_integration.load_desktop_config()
+    return config
+
+@app.put("/api/desktop/config")
+async def update_desktop_config(config: dict):
+    """Update desktop-specific configuration"""
+    success = await desktop_integration.save_desktop_config(config)
+    if success:
+        return {"message": "Desktop configuration updated successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to update desktop configuration")
+
+@app.post("/api/desktop/auto-start")
+async def setup_auto_start(enable: bool = True):
+    """Setup application auto-start"""
+    success = await desktop_integration.setup_auto_start(enable)
+    if success:
+        return {"message": f"Auto-start {'enabled' if enable else 'disabled'} successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to setup auto-start")
+
+@app.post("/api/desktop/shortcut")
+async def create_desktop_shortcut():
+    """Create desktop shortcut"""
+    success = await desktop_integration.create_desktop_shortcut()
+    if success:
+        return {"message": "Desktop shortcut created successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to create desktop shortcut")
+
+@app.get("/api/desktop/logs")
+async def get_app_logs(lines: int = 100):
+    """Get recent application logs"""
+    logs = await desktop_integration.get_app_logs(lines)
+    return {"logs": logs}
+
+@app.delete("/api/desktop/cache")
+async def clear_app_cache():
+    """Clear application cache"""
+    success = await desktop_integration.clear_cache()
+    if success:
+        return {"message": "Cache cleared successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to clear cache")
+
+@app.post("/api/desktop/export")
+async def export_app_data(export_path: str, include_logs: bool = False):
+    """Export application data"""
+    success = await desktop_integration.export_data(export_path, include_logs)
+    if success:
+        return {"message": f"Data exported to {export_path}"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to export data")
 
 @app.websocket("/api/ws")
 async def websocket_endpoint(websocket: WebSocket):

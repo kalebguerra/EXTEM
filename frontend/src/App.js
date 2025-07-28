@@ -33,11 +33,259 @@ import {
   TrendingUp,
   Filter,
   Search,
-  MoreVertical
+  MoreVertical,
+  Minimize2,
+  Maximize2,
+  X
 } from 'lucide-react';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
 const API = `${BACKEND_URL}/api`;
+
+// Desktop-specific components
+const TitleBar = ({ darkMode, onMinimize, onMaximize, onClose }) => {
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  return (
+    <div className={`h-8 ${darkMode ? 'bg-gray-900' : 'bg-gray-100'} flex items-center justify-between px-4 select-none drag-handle`}>
+      <div className="flex items-center space-x-2">
+        <div className="w-3 h-3 rounded-full bg-red-500"></div>
+        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+        <div className="w-3 h-3 rounded-full bg-green-500"></div>
+      </div>
+      
+      <div className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+        AI Image Generator Manager
+      </div>
+      
+      <div className="flex items-center space-x-1 no-drag">
+        <button
+          onClick={onMinimize}
+          className={`p-1 rounded hover:${darkMode ? 'bg-gray-800' : 'bg-gray-200'} transition-colors`}
+        >
+          <Minimize2 className="w-3 h-3" />
+        </button>
+        <button
+          onClick={() => {
+            setIsMaximized(!isMaximized);
+            onMaximize();
+          }}
+          className={`p-1 rounded hover:${darkMode ? 'bg-gray-800' : 'bg-gray-200'} transition-colors`}
+        >
+          <Maximize2 className="w-3 h-3" />
+        </button>
+        <button
+          onClick={onClose}
+          className="p-1 rounded hover:bg-red-500 hover:text-white transition-colors"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const DesktopNotification = ({ title, message, type = 'info', onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 5000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const getIcon = () => {
+    switch (type) {
+      case 'success': return <CheckCircle className="w-5 h-5 text-green-500" />;
+      case 'error': return <AlertTriangle className="w-5 h-5 text-red-500" />;
+      case 'warning': return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
+      default: return <Bell className="w-5 h-5 text-blue-500" />;
+    }
+  };
+
+  return (
+    <div className="fixed top-4 right-4 z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg border p-4 min-w-80 max-w-96 animate-slide-in">
+      <div className="flex items-start space-x-3">
+        {getIcon()}
+        <div className="flex-1">
+          <h4 className="font-semibold text-gray-900 dark:text-white">{title}</h4>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{message}</p>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Enhanced Desktop Features
+const useDesktopFeatures = () => {
+  const [systemInfo, setSystemInfo] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+
+  useEffect(() => {
+    // Get system information if running in Electron
+    if (window.electronAPI) {
+      window.electronAPI.getSystemInfo().then(setSystemInfo);
+      
+      // Listen for menu actions
+      window.electronAPI.onMenuAction((event, action, data) => {
+        handleMenuAction(action, data);
+      });
+    }
+
+    return () => {
+      if (window.electronAPI) {
+        window.electronAPI.removeMenuActionListener();
+      }
+    };
+  }, []);
+
+  const handleMenuAction = (action, data) => {
+    switch (action) {
+      case 'new-job':
+        showNotification('New Job', 'Creating new image generation job...', 'info');
+        break;
+      case 'import-prompts':
+        showNotification('Import', `Importing prompts from ${data}`, 'info');
+        break;
+      case 'export-results':
+        showNotification('Export', `Exporting results to ${data}`, 'info');
+        break;
+      case 'preferences':
+        showNotification('Preferences', 'Opening preferences...', 'info');
+        break;
+      default:
+        console.log('Unknown menu action:', action);
+    }
+  };
+
+  const showNotification = (title, message, type = 'info') => {
+    const id = Date.now();
+    const notification = { id, title, message, type };
+    
+    setNotifications(prev => [...prev, notification]);
+    
+    // Also show native notification if available
+    if (window.electronAPI) {
+      window.electronAPI.showNotification(title, message);
+    }
+  };
+
+  const removeNotification = (id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  return {
+    systemInfo,
+    notifications,
+    showNotification,
+    removeNotification
+  };
+};
+
+// File operations for desktop
+const useFileOperations = () => {
+  const saveFile = async (data, filename, filters) => {
+    if (!window.electronAPI) {
+      // Fallback for web
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    const result = await window.electronAPI.showSaveDialog({
+      defaultPath: filename,
+      filters: filters || [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (!result.canceled) {
+      // In a real app, you'd write the file here
+      console.log('Would save to:', result.filePath);
+      return result.filePath;
+    }
+  };
+
+  const openFile = async (filters) => {
+    if (!window.electronAPI) {
+      return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,.txt';
+        input.onchange = (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.readAsText(file);
+          }
+        };
+        input.click();
+      });
+    }
+
+    const result = await window.electronAPI.showOpenDialog({
+      properties: ['openFile'],
+      filters: filters || [
+        { name: 'Text Files', extensions: ['txt'] },
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (!result.canceled && result.filePaths.length > 0) {
+      // In a real app, you'd read the file here
+      console.log('Would open:', result.filePaths[0]);
+      return result.filePaths[0];
+    }
+  };
+
+  return { saveFile, openFile };
+};
+import { 
+  Brain, 
+  Settings, 
+  Zap, 
+  Monitor, 
+  Image, 
+  Play, 
+  Pause, 
+  Square, 
+  Download, 
+  Eye, 
+  Trash2,
+  Plus,
+  Server,
+  Activity,
+  Bell,
+  Moon,
+  Sun,
+  Wifi,
+  WifiOff,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Layers,
+  BarChart3,
+  RefreshCw,
+  Cog,
+  Palette,
+  Users,
+  Database,
+  TrendingUp,
+  Filter,
+  Search,
+  MoreVertical
+} from 'lucide-react';
 
 // Custom Hook para WebSocket
 const useWebSocket = (url) => {
@@ -755,6 +1003,27 @@ function App() {
   const [systemHealth, setSystemHealth] = useState(null);
   
   const { connected, messages } = useWebSocket(`${API.replace('http', 'ws')}/ws`);
+  const { systemInfo, notifications, showNotification, removeNotification } = useDesktopFeatures();
+  const { saveFile, openFile } = useFileOperations();
+
+  // Desktop window controls
+  const handleMinimize = () => {
+    if (window.electronAPI) {
+      window.electronAPI.minimizeWindow();
+    }
+  };
+
+  const handleMaximize = () => {
+    if (window.electronAPI) {
+      window.electronAPI.maximizeWindow();
+    }
+  };
+
+  const handleClose = () => {
+    if (window.electronAPI) {
+      window.electronAPI.closeWindow();
+    }
+  };
 
   useEffect(() => {
     const loadSystemHealth = async () => {
@@ -819,7 +1088,30 @@ function App() {
   };
 
   return (
-    <div className={`flex h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <div className={`flex flex-col h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-50'} overflow-hidden`}>
+      {/* Title Bar for Desktop */}
+      {window.electronAPI && (
+        <TitleBar 
+          darkMode={darkMode}
+          onMinimize={handleMinimize}
+          onMaximize={handleMaximize}
+          onClose={handleClose}
+        />
+      )}
+      
+      {/* Notifications */}
+      {notifications.map(notification => (
+        <DesktopNotification
+          key={notification.id}
+          title={notification.title}
+          message={notification.message}
+          type={notification.type}
+          onClose={() => removeNotification(notification.id)}
+        />
+      ))}
+      
+      {/* Main Content */}
+      <div className="flex flex-1 overflow-hidden">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} darkMode={darkMode} />
       
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -827,6 +1119,7 @@ function App() {
           {renderContent()}
         </div>
         <StatusBar connected={connected} darkMode={darkMode} systemHealth={systemHealth} />
+      </div>
       </div>
     </div>
   );
